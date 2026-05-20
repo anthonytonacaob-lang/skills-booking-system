@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<!--
+  SKILLS INC. BOOKING SYSTEM
+  Admin Dashboard — index.html
+  Hosted on GitHub Pages | Powered by Firebase + EmailJS
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+  <title>SKILLS Admin — Booking System</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Firebase v9 compat (works without a bundler) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <!-- EmailJS -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
+  <style>
+    /* ── Admin-specific layout ───────────────────────────────────── */
+    body { display: flex; height: 100vh; overflow: hidden; }
+
+    /* Mobile header */
+    .mobile-header {
+      display: none;
+      background: white;
+      padding: 15px 20px;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 50;
+    }
+    .mobile-header .brand { font-size: 18px; font-weight: 800; margin: 0; }
+    .mobile-header button { background: none; border: none; color: var(--primary-blue); font-size: 26px; cursor: pointer; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px; min-width: 240px;
+      background: white;
+      box-shadow: 4px 0 15px rgba(0,0,0,0.04);
+      padding: 40px 20px;
+      display: flex; flex-direction: column; gap: 10px;
+      z-index: 40;
+      transition: left 0.3s ease;
+      overflow-y: auto;
+    }
+    .sidebar .brand       { font-weight: 800; font-size: 20px; color: #0f172a; letter-spacing: -0.5px; padding: 0 10px 15px; }
+    .sidebar-btn          { width: 100%; padding: 13px 15px; background: #f8fafc; color: var(--text-main); border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: 0.2s; display: flex; justify-content: space-between; align-items: center; }
+    .sidebar-btn:hover    { background: #e2e8f0; }
+    .sidebar-btn.active   { background: var(--primary-blue); color: white; box-shadow: 0 4px 6px rgba(59,130,246,0.2); }
+    .close-sidebar        { display: none; background: none; border: none; color: var(--text-muted); font-size: 22px; cursor: pointer; position: absolute; top: 15px; right: 15px; }
+
+    /* Main content */
+    .main-content {
+      flex: 1; overflow-y: auto; padding: 40px 50px;
+      background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%);
+    }
+    .view-section        { display: none; animation: fadeIn 0.3s; }
+    .view-section.active { display: block; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+
+    /* Filter bar */
+    .filter-bar {
+      display: inline-flex; align-items: flex-end; gap: 15px; flex-wrap: wrap;
+      background: white; padding: 20px 25px; border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;
+      margin-bottom: 25px;
+    }
+    .filter-bar .form-label { margin-bottom: 6px; }
+
+    /* Loading indicator */
+    .loading-msg { color: var(--primary-blue); font-weight: 700; font-size: 13px; display: none; margin-left: 10px; }
+
+    /* Additional charges row */
+    .charge-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-end; }
+    .charge-row .form-group { margin-bottom: 0; }
+
+    /* Grand total field */
+    .grand-total-field {
+      color: var(--primary-blue); font-size: 26px;
+      font-weight: 800; background: #eff6ff; border-color: #bfdbfe;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      body { flex-direction: column; padding-top: 60px; }
+      .mobile-header { display: flex; }
+      .sidebar { position: fixed; top: 0; left: -280px; height: 100vh; width: 260px; border-radius: 0; }
+      .sidebar.open { left: 0; box-shadow: 0 0 0 10000px rgba(15,23,42,0.5); }
+      .close-sidebar { display: block; }
+      .sidebar .brand { margin-top: 30px; }
+      .main-content { padding: 20px 15px; }
+      .pricing-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 480px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Toast ───────────────────────────────────────────────────── -->
+  <div id="toast"></div>
+
+  <!-- ── Modal ───────────────────────────────────────────────────── -->
+  <div id="customAlert" class="modal-overlay">
+    <div class="modal-card" id="alertCard">
+      <h3 id="alertTitle">Notice</h3>
+      <p  id="alertMessage"></p>
+      <div id="rejectInputArea" style="display:none; margin-bottom:20px;">
+        <input type="text" id="rejectReason" class="form-control" placeholder="Enter reason for rejection…">
+      </div>
+      <div class="modal-btn-group">
+        <button id="alertBtnClose" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button id="alertBtnAction" class="btn btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Print: Receipt (2-copy) ─────────────────────────────────── -->
+  <div id="receiptContainer">
+    <div class="print-layout">
+      <!-- Copy 1 -->
+      <div class="modern-receipt">
+        <div class="r-header">
+          <h1>SKILLS INC.</h1>
+          <p>Facility Rental Receipt &amp; Pass</p>
+          <p class="r_currentDate"></p>
+          <p style="font-weight:bold; color:#0f172a; margin-top:6px;">Ref: <span class="r_bookingID"></span></p>
+        </div>
+        <div class="r-row"><span>Client:</span>      <span class="r_name" style="font-weight:bold;"></span></div>
+        <div class="r-row"><span>Organization:</span><span class="r_org"></span></div>
+        <div class="r-row"><span>Address:</span>     <span class="r_address"></span></div>
+        <div class="r-row"><span>Email:</span>       <span class="r_email"></span></div>
+        <div class="r-row"><span>ID:</span>          <span><span class="r_idType"></span> – <span class="r_idNumber"></span></span></div>
+        <div class="r-divider"></div>
+        <div class="r-row"><span>Payment:</span>     <span class="r_payment"></span></div>
+        <div class="r-row r_transactionRefRow" style="display:none;"><span>Ref #:</span><span class="r_transactionRef" style="font-weight:bold;"></span></div>
+        <div class="r-divider"></div>
+        <p style="font-weight:700; font-size:9px; color:#64748b; text-transform:uppercase; margin:0 0 5px;">Reserved Slots:</p>
+        <div class="r_batchList batch-list"></div>
+        <div class="r-divider"></div>
+        <div class="r-row"><span>Base Amount:</span> <span>PHP <span class="r_base"></span></span></div>
+        <div class="r-row"><span>Add-ons:</span>     <span class="r_add" style="max-width:60%; text-align:right;"></span></div>
+        <div class="r-total"><span>GRAND TOTAL:</span><span>PHP <span class="r_total"></span></span></div>
+        <div class="modern-waiver">
+          <h3>Waiver of Liability</h3>
+          <p>I, <strong class="w_name"></strong>, residing at <strong class="w_address"></strong>, representing <strong class="w_org"></strong>, voluntarily assume all risks associated with using SKILLS Inc. gymnasium facilities and release SKILLS Inc. from any liability for personal injury, property damage, or loss.</p>
+          <p style="text-transform:uppercase; font-weight:bold; margin-top:8px;">I have read, understood, and voluntarily agree to this waiver.</p>
+          <div class="sig-box">
+            <div class="sig-line">Signature over Printed Name</div>
+            <div class="sig-line" style="width:30%;">Date: <span class="w_date_fill"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cut-line"></div>
+
+      <!-- Copy 2 (identical — JS fills both via shared class names) -->
+      <div class="modern-receipt">
+        <div class="r-header">
+          <h1>SKILLS INC.</h1>
+          <p>Facility Rental Receipt &amp; Pass</p>
+          <p class="r_currentDate"></p>
+          <p style="font-weight:bold; color:#0f172a; margin-top:6px;">Ref: <span class="r_bookingID"></span></p>
+        </div>
+        <div class="r-row"><span>Client:</span>      <span class="r_name" style="font-weight:bold;"></span></div>
+        <div class="r-row"><span>Organization:</span><span class="r_org"></span></div>
+        <div class="r-row"><span>Address:</span>     <span class="r_address"></span></div>
+        <div class="r-row"><span>Email:</span>       <span class="r_email"></span></div>
+        <div class="r-row"><span>ID:</span>          <span><span class="r_idType"></span> – <span class="r_idNumber"></span></span></div>
+        <div class="r-divider"></div>
+        <div class="r-row"><span>Payment:</span>     <span class="r_payment"></span></div>
+        <div class="r-row r_transactionRefRow" style="display:none;"><span>Ref #:</span><span class="r_transactionRef" style="font-weight:bold;"></span></div>
+        <div class="r-divider"></div>
+        <p style="font-weight:700; font-size:9px; color:#64748b; text-transform:uppercase; margin:0 0 5px;">Reserved Slots:</p>
+        <div class="r_batchList batch-list"></div>
+        <div class="r-divider"></div>
+        <div class="r-row"><span>Base Amount:</span> <span>PHP <span class="r_base"></span></span></div>
+        <div class="r-row"><span>Add-ons:</span>     <span class="r_add" style="max-width:60%; text-align:right;"></span></div>
+        <div class="r-total"><span>GRAND TOTAL:</span><span>PHP <span class="r_total"></span></span></div>
+        <div class="modern-waiver">
+          <h3>Waiver of Liability</h3>
+          <p>I, <strong class="w_name"></strong>, residing at <strong class="w_address"></strong>, representing <strong class="w_org"></strong>, voluntarily assume all risks associated with using SKILLS Inc. gymnasium facilities and release SKILLS Inc. from any liability for personal injury, property damage, or loss.</p>
+          <p style="text-transform:uppercase; font-weight:bold; margin-top:8px;">I have read, understood, and voluntarily agree to this waiver.</p>
+          <div class="sig-box">
+            <div class="sig-line">Signature over Printed Name</div>
+            <div class="sig-line" style="width:30%;">Date: <span class="w_date_fill"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Print: Gate Schedule ────────────────────────────────────── -->
+  <div id="schedulePrintContainer">
+    <div style="padding:20px; font-family:system-ui,-apple-system,sans-serif;">
+      <div style="text-align:center; margin-bottom:20px;">
+        <h1 style="margin:0; font-size:22px;">SKILLS INC. — GYMNASIUM SCHEDULE</h1>
+        <p id="printScheduleDate" style="margin:5px 0; font-size:15px; font-weight:bold; color:#475569;"></p>
+      </div>
+      <div class="schedule-grid" id="printGateGrid" style="max-width:100%;"></div>
+      <p style="margin-top:25px; font-size:13px; text-align:center; color:#475569; font-weight:bold;">
+        * Verify the short Booking ID (e.g. #1234) against the client's official receipt before granting entry.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── App Shell ───────────────────────────────────────────────── -->
+  <div class="mobile-header">
+    <p class="brand">SKILLS Gym</p>
+    <button onclick="toggleSidebar()">☰</button>
+  </div>
+
+  <div id="appContainer" style="display:flex; width:100%;">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <button class="close-sidebar" onclick="toggleSidebar()">✕</button>
+      <div class="brand">SKILLS Admin</div>
+      <button id="navDashboard"    class="sidebar-btn active" onclick="switchView('dashboardView',    this)">Dashboard</button>
+      <button id="navGate"         class="sidebar-btn"        onclick="switchView('gateScheduleView', this)">Gate Schedule</button>
+      <button id="navDataEntry"    class="sidebar-btn"        onclick="switchView('dataEntryView',    this)">Data Entry</button>
+      <button id="navPending"      class="sidebar-btn"        onclick="switchView('pendingView',      this)" style="display:flex; justify-content:space-between; align-items:center;">
+        Pending Approvals
+        <span id="pendingBadge" style="background:#ef4444; color:white; padding:2px 8px; border-radius:12px; font-size:11px; display:none;">0</span>
+      </button>
+      <button id="navDatabase"     class="sidebar-btn"        onclick="switchView('databaseView',     this)">Master Database</button>
+      <button id="navAnalytics"    class="sidebar-btn"        onclick="switchView('analyticsView',    this)">Analytics</button>
+    </div>
+
+    <!-- Main content -->
+    <div class="main-content">
+
+      <!-- ============================================================
+           DASHBOARD — Live Schedule
+           ============================================================ -->
+      <div id="dashboardView" class="view-section active">
+        <div class="page-header">Live Schedule</div>
+
+        <!-- Pricing cards -->
+        <div class="pricing-grid">
+          <div class="pricing-card pkg-reg">
+            <h4>Regular Games</h4>
+            <div class="desc">Basketball, Volleyball, Badminton, Pickleball</div>
+            <div class="price">PHP 450<span>/hr (Day)</span></div>
+            <div class="price">PHP 550<span>/hr (Night)</span></div>
+            <ul><li>Max 20 pax</li></ul>
+          </div>
+          <div class="pricing-card pkg-a">
+            <h4>Package A</h4>
+            <div class="desc">Exclusive Full Facility</div>
+            <div class="price">PHP 1,500<span>/hr (Day)</span></div>
+            <div class="price">PHP 2,500<span>/hr (Night)</span></div>
+            <ul><li>Whole Gym (3 Courts)</li><li>Bleachers, Fan, Lights</li></ul>
+          </div>
+          <div class="pricing-card pkg-b">
+            <h4>Package B</h4>
+            <div class="desc">Court 1 + Bleachers</div>
+            <div class="price">PHP 600<span>/hr (Day)</span></div>
+            <div class="price">PHP 700<span>/hr (Night)</span></div>
+            <ul><li>Fan, Lights</li><li>Max 80 pax</li></ul>
+          </div>
+          <div class="pricing-card pkg-c">
+            <h4>Package C</h4>
+            <div class="desc">Standard Court + Extra Pax</div>
+            <div class="price">PHP 550<span>/hr (Day)</span></div>
+            <div class="price">PHP 650<span>/hr (Night)</span></div>
+            <ul><li>Fan, Lights</li><li>Max 50 pax</li></ul>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div>
+            <label class="form-label">Select Date</label>
+            <input type="date" id="dateFilter" class="form-control" onchange="loadDashboardData()" style="width:220px;">
+          </div>
+          <span id="loadingMsg" class="loading-msg"><span class="spinner"></span> Loading…</span>
+        </div>
+
+        <div class="grid-wrapper">
+          <div class="schedule-grid" id="grid"></div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           GATE SCHEDULE — Printable
+           ============================================================ -->
+      <div id="gateScheduleView" class="view-section">
+        <div class="page-header">Gate Schedule</div>
+        <div class="filter-bar">
+          <div>
+            <label class="form-label">Select Date to Print</label>
+            <input type="date" id="gateDateFilter" class="form-control" onchange="loadGateScheduleData()" style="width:220px;">
+          </div>
+          <button class="btn btn-primary" onclick="printGateSchedule()">🖨️ Print Security Pass</button>
+          <span id="gateLoadingMsg" class="loading-msg"><span class="spinner"></span> Loading…</span>
+        </div>
+        <div class="grid-wrapper">
+          <div class="schedule-grid" id="gateGrid"></div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           PENDING APPROVALS
+           ============================================================ -->
+      <div id="pendingView" class="view-section">
+        <div class="page-header">Pending Online Requests</div>
+        <div style="display:flex; gap:15px; align-items:center; margin-bottom:25px; flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="loadPendingRequests()">↻ Refresh</button>
+          <input type="text" id="pendingSearch" class="form-control" placeholder="Search by ID or name…" onkeyup="filterPendingRequests()" style="max-width:300px;">
+          <span id="pendingLoadingMsg" class="loading-msg"><span class="spinner"></span> Fetching…</span>
+        </div>
+        <div id="pendingListWrapper"></div>
+      </div>
+
+      <!-- ============================================================
+           DATA ENTRY — New Booking / Review Request
+           ============================================================ -->
+      <div id="dataEntryView" class="view-section">
+        <div class="page-header" id="formHeader">New Booking Entry</div>
+
+        <div class="form-card">
+          <input type="hidden" id="pendingReqId" value="">
+
+          <!-- Client info -->
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Full Name</label><input type="text"  id="fullName"     class="form-control" placeholder="Complete name"></div>
+            <div class="form-group"><label class="form-label">Organization</label><input type="text" id="orgName"    class="form-control" placeholder="Optional"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Email Address</label><input type="email" id="emailAddress" class="form-control" placeholder="For receipt"></div>
+            <div class="form-group"><label class="form-label">Home Address</label><input type="text"   id="address"      class="form-control" placeholder="Complete address"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Type of ID</label>
+              <select id="idType" class="form-control">
+                <option value="National ID">National ID</option>
+                <option value="Driver's License">Driver's License</option>
+                <option value="Passport">Passport</option>
+                <option value="Company/School ID">Company/School ID</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">ID Number</label><input type="text" id="idNumber" class="form-control" placeholder="ID number"></div>
+          </div>
+
+          <hr style="border:0; border-top:1px solid #e2e8f0; margin:30px 0;">
+
+          <!-- Booking slots -->
+          <div id="batchBlocksWrapper"></div>
+          <button type="button" class="btn btn-secondary" style="width:100%; justify-content:center; margin-bottom:25px;" onclick="addBatchBlock()">+ Add Another Slot</button>
+
+          <!-- Totals -->
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Total Hours</label><input type="text" id="totalHoursGlobal"  class="form-control" readonly placeholder="0"></div>
+            <div class="form-group"><label class="form-label">Total Base Amount</label><input type="text" id="baseAmountGlobal" class="form-control" readonly placeholder="0.00"></div>
+          </div>
+
+          <!-- Additional charges -->
+          <div style="border:1px dashed var(--input-border); background:#f8fafc; padding:20px; border-radius:12px; margin-bottom:25px;">
+            <label class="form-label">Additional Charges</label>
+            <div id="chargesWrapper"></div>
+            <button type="button" class="btn btn-secondary" style="font-size:13px; padding:8px 14px;" onclick="addChargeField()">+ Add Charge</button>
+          </div>
+
+          <!-- Grand total -->
+          <div class="form-group" style="margin-bottom:25px;">
+            <label class="form-label" style="font-size:14px;">Grand Total Payable (PHP)</label>
+            <input type="text" id="totalPayableGlobal" class="form-control grand-total-field" readonly placeholder="0.00">
+          </div>
+
+          <!-- Payment -->
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Mode of Payment</label>
+              <select id="paymentMode" class="form-control" onchange="toggleRefField()">
+                <option value="Cash">Cash</option>
+                <option value="Online Transfer">Online Transfer</option>
+              </select>
+            </div>
+            <div class="form-group" id="refNumberGroup" style="display:none;">
+              <label class="form-label" style="color:var(--primary-blue);">Transaction Ref #</label>
+              <input type="text" id="transactionRef" class="form-control" placeholder="Bank or GCash Ref #">
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-full" id="saveBtn" onclick="submitForm()" style="padding:18px; font-size:17px; margin-top:10px;">
+            Save Complete Booking
+          </button>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           MASTER DATABASE
+           ============================================================ -->
+      <div id="databaseView" class="view-section">
+        <div class="page-header">Master Database</div>
+        <div style="display:flex; gap:15px; align-items:center; margin-bottom:10px;">
+          <button class="btn btn-secondary" onclick="loadDatabaseData()">↻ Refresh</button>
+          <span id="dbLoadingMsg" class="loading-msg"><span class="spinner"></span> Fetching…</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="dataTable"></table>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ANALYTICS
+           ============================================================ -->
+      <div id="analyticsView" class="view-section">
+        <div class="page-header">Analytics &amp; Reporting</div>
+        <div style="display:flex; gap:15px; align-items:center; margin-bottom:25px;">
+          <button class="btn btn-secondary" onclick="loadAnalyticsData()">↻ Refresh</button>
+          <span id="analyticsLoadingMsg" class="loading-msg"><span class="spinner"></span> Crunching numbers…</span>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card blue">  <p class="kpi-label">Total Revenue (PHP)</p><p class="kpi-value" id="kpiRevenue"  style="color:var(--primary-blue);">—</p></div>
+          <div class="kpi-card green"> <p class="kpi-label">Booked Slots</p>       <p class="kpi-value" id="kpiBookings" style="color:#10b981;">—</p></div>
+          <div class="kpi-card orange"><p class="kpi-label">Hours Rented</p>        <p class="kpi-value" id="kpiHours"    style="color:#f59e0b;">—</p></div>
+        </div>
+
+        <div class="chart-grid">
+          <div class="chart-card"><h4>Peak Hours</h4>           <div class="chart-wrap"><canvas id="peakHoursChart"></canvas></div></div>
+          <div class="chart-card"><h4>Bookings by Day</h4>      <div class="chart-wrap"><canvas id="peakDaysChart"></canvas></div></div>
+          <div class="chart-card"><h4>Court Utilization</h4>   <div class="chart-wrap"><canvas id="courtChart"></canvas></div></div>
+          <div class="chart-card"><h4>Revenue by Package</h4>  <div class="chart-wrap"><canvas id="sportChart"></canvas></div></div>
+        </div>
+      </div>
+
+    </div><!-- /.main-content -->
+  </div><!-- /#appContainer -->
+
+  <!-- ── Scripts ─────────────────────────────────────────────────── -->
+  <script src="js/firebase.js"></script>
+  <script src="js/email.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/admin.js"></script>
+
+</body>
+</html>
